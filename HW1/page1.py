@@ -1,23 +1,29 @@
 import streamlit as st
-import pandas as pd
+import matplotlib.pyplot as plt
+import numpy as np
 
 
-def run():
-    st.title('Загрузка данных')
-    uploaded_file = st.file_uploader('Загрузите CSV-файл с историческими данными', type=['csv'])
+def run(df):
+    st.write('Посмотрим на загруженные исторические данные')
+    st.dataframe(df)
 
-    # Кэшируем данные
-    @st.cache_data
-    def load_data(file):
-        return pd.read_csv(file)
+    if st.checkbox("Показать гистограмму для городов"):
+        st.subheader('Гистограмма')
 
-    if uploaded_file is not None:
-        data = load_data(uploaded_file)
-        st.session_state.data = data  # Сохраняем данные в session_state
-        st.write('Посмотрим на загруженные данные')
-        st.dataframe(data)
+        # Получаем уникальные города
+        cities = df['city'].unique()
+        selected_city = st.selectbox('Выберите город', cities)  #
+        city_data = df[df['city'] == selected_city]['temperature']
 
-        if st.checkbox("Показать описательную статистику для числовой переменной"):
-            st.write(data.describe())
-    else:
-        st.write('Пожалуйста, загрузите исторические данные.')
+        bins = st.slider('Количество интервалов (bins)', 5, 50, 10)
+
+        fig, ax = plt.subplots()
+        ax.hist(city_data, bins=bins, color='skyblue', edgecolor='black')
+
+        ax.set_title(f'Гистограмма температур для города {selected_city}', fontsize=16)
+        ax.set_xlabel('Температура (°C)', fontsize=14)
+        ax.set_ylabel('Частота', fontsize=14)
+
+        st.pyplot(fig)
+
+    return 1
