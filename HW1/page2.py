@@ -82,7 +82,7 @@ def run(df):
         st.plotly_chart(fig_seasonal, use_container_width=True)
 
     st.markdown(
-        '**<p style="font-size: 20px;">Выявляем аномалии, где температура выходит за пределы  среднее ±2σ</p>**',
+        '**<p style="font-size: 20px;">Выявляем аномалии, где температура выходит за пределы  среднее ±2σ для каждого сезона</p>**',
         unsafe_allow_html=True)
 
     # Объединение данных с расчетами для определения аномалий
@@ -105,7 +105,7 @@ def run(df):
         fig_anomaly = px.scatter(city_data, x='timestamp', y='temperature',
                                  color='is_anomaly',
                                  color_discrete_map={'Аномалия': 'red', 'Норма': 'blue'},
-                                 title=f'Временной ряд температур в {selected_city} с аномалиями',
+                                 title=f'Временной ряд температур в {selected_city} с аномалиями в {selected_season}',
                                  labels={'temperature': 'Температура (°C)', 'timestamp': 'Дата'},
                                  template='plotly_white')
 
