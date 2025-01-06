@@ -32,4 +32,3 @@ def run(df):
 
         st.pyplot(fig)
 
-    return 1
