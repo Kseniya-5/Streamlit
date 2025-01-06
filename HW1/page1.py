@@ -4,11 +4,17 @@ import numpy as np
 
 
 def run(df):
-    st.write('Посмотрим на загруженные исторические данные')
-    st.dataframe(df)
+    st.title(
+        ':blue[ДЗ1. Анализ температурных данных и мониторинг текущей температуры через OpenWeatherMap API] :sunglasses:')
+    st.markdown(
+        '**<p style="font-size: 20px;">Посмотрим на загруженные исторические данные</p>**',
+        unsafe_allow_html=True)
+    count = range(1, len(df) + 1)
+    selected_count = st.selectbox('Выберите количество строк', count)
+    st.dataframe(df.head(selected_count))
 
-    if st.checkbox("Показать гистограмму для городов"):
-        st.subheader('Гистограмма')
+    if st.checkbox("Показать гистограмму температур для городов"):
+        st.subheader('Гистограмма температур')
 
         # Получаем уникальные города
         cities = df['city'].unique()
