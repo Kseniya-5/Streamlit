@@ -138,10 +138,10 @@ async def process_weight(message: Message, state: FSMContext):
 async def process_height(message: Message, state: FSMContext):
     height = message.text.strip()
     # Проверка корректности роста
-    if not height.isdigit() or not (120 <= float(height) <= 300):
+    if not height.isdigit() or not (120 <= int(height) <= 300):
         await message.answer('Пожалуйста, введите корректный рост (число от 120 до 300):')
         return
-    await state.update_data(height=float(height))
+    await state.update_data(height=int(height))
     await message.answer('Сколько минут активности у вас в день?')
     await state.set_state(User.activity_level)
 
@@ -336,14 +336,23 @@ def plot_water_intake(message, logged_water, total_water_goal):
 async def process_logged_water(message: Message, state: FSMContext):
     logged_water = message.text.strip()
     # Проверка корректности возраста
-    if not logged_water.isdigit() or not (0 <= float(logged_water) <= 5000):
+    if not logged_water.isdigit() or not (0 <= int(logged_water) <= 5000):
         await message.answer('Пожалуйста, введите корректное значение выпитой воды (от 0 до 5000) мл.')
         return
-    await state.update_data(logged_water=float(logged_water))
+    await state.update_data(logged_water=int(logged_water))
     data = await state.get_data()
     current_temp, total_water_goal, remaining_water = await calculate_water_goal(message, data)
     plot_water_intake(message, logged_water, total_water_goal)
-    photo = await message.answer_photo(photo=FSInputFile('water_intake.jpg', filename='График воды'),
+    if (int(total_water_goal) - int(logged_water)) == 0:
+        photo = await message.answer_photo(photo=FSInputFile('water_intake.jpg', filename='График воды'),
+                                           caption=f'Вы выпили {logged_water} мл из необходимых {int(total_water_goal)} мл воды.\n'
+                                                   f'<b>Поздравляю!</b> Вы выпили свою дневную норму 💧', parse_mode='HTML')
+    elif (int(total_water_goal) - int(logged_water)) < 0:
+        photo = await message.answer_photo(photo=FSInputFile('water_intake.jpg', filename='График воды'),
+                                           caption=f'Вы выпили {logged_water} мл из необходимых {int(total_water_goal)} мл воды.\n'
+                                                   f'<b>Осторожно!</b> Вы выпили больше нормы 💧', parse_mode='HTML')
+    else:
+        photo = await message.answer_photo(photo=FSInputFile('water_intake.jpg', filename='График воды'),
                                caption=f'Вы выпили {logged_water} мл из необходимых {int(total_water_goal)} мл воды.\n'
                                        f'Осталось еще {int(remaining_water)} мл до выполнения нормы.')
     await show_keyboard(photo)
