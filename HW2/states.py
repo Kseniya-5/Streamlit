@@ -11,3 +11,7 @@ class User(StatesGroup):
     logged_water = State() # Состояние для выпитой воды
     logged_calories = State() # Состояние для полученных калорий
     burned_calories = State() # Состояние для сожженых калорий
+
+class Food(StatesGroup):
+    product = State() # Состояние для названия продукта
+    gram = State() # Состояние для съеденных грамм продукта

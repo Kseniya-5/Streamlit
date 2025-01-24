@@ -1,15 +1,15 @@
 from aiogram import Router
 from aiogram.fsm.context import FSMContext
-from aiogram.types import Message, InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery, InputFile, FSInputFile
+from aiogram.types import Message, InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery, FSInputFile
 from aiogram.filters import Command
 import matplotlib.pyplot as plt
-from states import User
+from states import User, Food
 from config import API_W
 from aiohttp import ClientSession
+import requests
 import re
 
 router = Router()
-users = {}
 API_KEY = API_W
 
 
@@ -34,8 +34,8 @@ async def cmd_help(message: Message):
         '1. <b>Создать профиль</b> - Создание профиля пользователя.\n'
         '2. <b>Профиль</b> - Просмотр данных своего профиля.\n'
         '3. <b>Вода</b> - Сохраняет выпитое количество воды и показывает, сколько осталось до нормы.\n'
-        '4. <b>Еда</b> - Сохраняет калорийность продукта.\n'
-        '5. <b>Тренировка</b> - Фиксирует сожженные калории, учитывает расходы воды на тренировке.\n'
+        '4. <b>Еда</b> - Показывает, сколько калорий съедено за день.\n'
+        '5. <b>Тренировка</b> - Фиксирует сожженные калории.\n'
         '6. <b>Прогресс</b> - Показывает прогресс по воде и калориям.',
         parse_mode='HTML'
     )
@@ -78,7 +78,7 @@ async def handle_callback(callback_query: CallbackQuery, state: FSMContext):
     elif callback_query.data == 'water':
         await start_water(callback_query.message, state)
     elif callback_query.data == 'food':
-        await callback_query.message.reply('Вы выбрали кнопку "Еда".')
+        await calories(callback_query.message, state)
     elif callback_query.data == 'training':
         await callback_query.message.reply('Вы выбрали кнопку "Тренировка".')
     elif callback_query.data == 'progress':
@@ -100,7 +100,7 @@ async def start_profile(message: Message, state: FSMContext):
 async def process_manual_name(message: Message, state: FSMContext):
     name = message.text.strip()
     if not name:
-        await message.answer("Имя не может быть пустым. Пожалуйста, введите ваше имя:")
+        await message.answer("Имя не может быть пустым. Пожалуйста, введите ваше имя.")
         return
     elif not re.match('^[A-Za-zА-Яа-яЁёs]+$', name):
         await message.answer('Имя должно содержать только буквы. Пожалуйста, введите ваше имя снова.')
@@ -237,9 +237,9 @@ async def get_profile(message: Message, state: FSMContext):
             f'Уровень активности: {data.get("activity_level")} минут в день\n'
             f'Город: {data.get("city")}\n'
             f'Цель калорий: {data.get("custom_calorie_goal")} ккал\n'
-            f'Количество выпитой воды: {data.get("logged_water", "Не указано")} мл\n'
-            f'Количество полученных калорий: {data.get("logged_calories", "Не указано")}\n'
-            f'Количество сожженных калорий: {data.get("burned_calories", "Не указано")}',
+            f'Количество выпитой воды: {data.get("logged_water", 0)} мл\n'
+            f'Количество полученных калорий: +{data.get("logged_calories", 0)} ккал\n'
+            f'Количество сожженных калорий: -{data.get("burned_calories", 0)} ккал',
             parse_mode='HTML'
         )
     # Возврат в главное меню
@@ -346,14 +346,95 @@ async def process_logged_water(message: Message, state: FSMContext):
     if (int(total_water_goal) - int(logged_water)) == 0:
         photo = await message.answer_photo(photo=FSInputFile('water_intake.jpg', filename='График воды'),
                                            caption=f'Вы выпили {logged_water} мл из необходимых {int(total_water_goal)} мл воды.\n'
-                                                   f'<b>Поздравляю!</b> Вы выпили свою дневную норму 💧', parse_mode='HTML')
+                                                   f'<b>Поздравляю!</b> Вы выпили свою дневную норму 💧',
+                                           parse_mode='HTML')
     elif (int(total_water_goal) - int(logged_water)) < 0:
         photo = await message.answer_photo(photo=FSInputFile('water_intake.jpg', filename='График воды'),
                                            caption=f'Вы выпили {logged_water} мл из необходимых {int(total_water_goal)} мл воды.\n'
                                                    f'<b>Осторожно!</b> Вы выпили больше нормы 💧', parse_mode='HTML')
     else:
         photo = await message.answer_photo(photo=FSInputFile('water_intake.jpg', filename='График воды'),
-                               caption=f'Вы выпили {logged_water} мл из необходимых {int(total_water_goal)} мл воды.\n'
-                                       f'Осталось еще {int(remaining_water)} мл до выполнения нормы.')
+                                           caption=f'Вы выпили {logged_water} мл из необходимых {int(total_water_goal)} мл воды.\n'
+                                                   f'Осталось еще {int(remaining_water)} мл до выполнения нормы.')
     await show_keyboard(photo)
+
+
 ###################################Food##############################################
+def get_food_info(product_name):
+    """Запрашивает данные о продукте у OpenFoodFacts"""
+    url = f"https://world.openfoodfacts.org/cgi/search.pl?action=process&search_terms={product_name}&json=true"
+    response = requests.get(url)
+    if response.status_code == 200:
+        data = response.json()
+        products = data.get('products', [])
+        if products:  # Проверяем, есть ли найденные продукты
+            first_product = products[0]
+            return {
+                'name': first_product.get('product_name', 'Неизвестно'),
+                'calories': first_product.get('nutriments', {}).get('energy-kcal_100g', 0)
+            }
+        return None
+    print(f"Ошибка: {response.status_code}")
+    return None
+
+@router.message(Command('food'))
+async def calories(message: Message, state: FSMContext):
+    await message.answer(
+        '<b><u>Вы выбрали кнопку "Еда"</u></b>\n\n'
+        'Напишите название продукта, чтобы узнать его калорийность.',
+        parse_mode='HTML'
+    )
+    await state.set_state(Food.product)
+
+@router.message(Food.product)
+async def process_product_input(message: Message, state: FSMContext):
+    product = message.text.strip()
+    if not product:
+        await message.answer("Название продукта не может быть пустым. Пожалуйста, введите название продукта еще раз.")
+        return
+    elif not re.match('^[A-Za-zА-Яа-яЁёs ]+$', product):  # Добавил пробел для многословных названий
+        await message.answer('Название продукта должно содержать только буквы. Пожалуйста, введите снова название продукта.')
+        return
+
+    await state.update_data(product=product)
+
+    food_info = get_food_info(product)
+    if food_info is None:
+        await message.answer("Продукт не найден. Попробуйте еще раз.")
+        return
+
+    product_name = food_info['name']
+    calories_per_100g = food_info['calories']
+
+    await message.answer(
+        f"{product_name} — {calories_per_100g} ккал на 100 г.\n"
+        f"Сколько грамм вы съели?"
+    )
+    await state.set_state(Food.gram)
+    await state.update_data(calories_per_100g=calories_per_100g)
+
+@router.message(Food.gram)
+async def process_weight_input(message: Message, state: FSMContext):
+    data = await state.get_data()
+    gram = message.text.strip()
+
+    if not gram.isdigit() or not (0 <= float(gram) <= 8000):
+        await message.answer('Пожалуйста, введите корректное количество граммов (число от 0 до 8000):')
+        return
+
+    await state.update_data(gram=gram)
+    calories_per_100g = data.get('calories_per_100g')
+    total_calories = (int(calories_per_100g) / 100) * float(gram)
+
+    # Сохраняем общее количество калорий для пользователя
+    logged_calories = data.get('logged_calories', 0)
+    logged_calories += total_calories
+    await state.update_data(logged_calories=logged_calories)
+
+    a = await message.answer(
+        f'Вы съели: {total_calories:.1f} ккал.\n'
+        f'<b>Всего за день:</b> {logged_calories:.1f} ккал.',
+        parse_mode='HTML'
+    )
+    await show_keyboard(a)
+###################################Workout##############################################
