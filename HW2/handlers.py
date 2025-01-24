@@ -3,14 +3,16 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import Message, InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery, FSInputFile
 from aiogram.filters import Command
 import matplotlib.pyplot as plt
-from states import User, Food
-from config import API_W
+from states import User, Food, Workout
+from config import API_W, API
 from aiohttp import ClientSession
+import random
 import requests
 import re
 
 router = Router()
-API_KEY = API_W
+API_KEY = API_W # API для погоды
+API_T = API     # API для тренировки
 
 
 # Обработчик команды /start
@@ -80,7 +82,7 @@ async def handle_callback(callback_query: CallbackQuery, state: FSMContext):
     elif callback_query.data == 'food':
         await calories(callback_query.message, state)
     elif callback_query.data == 'training':
-        await callback_query.message.reply('Вы выбрали кнопку "Тренировка".')
+        await start_training(callback_query.message, state)
     elif callback_query.data == 'progress':
         await callback_query.message.reply('Вы выбрали кнопку "Прогресс".')
     else:
@@ -357,8 +359,6 @@ async def process_logged_water(message: Message, state: FSMContext):
                                            caption=f'Вы выпили {logged_water} мл из необходимых {int(total_water_goal)} мл воды.\n'
                                                    f'Осталось еще {int(remaining_water)} мл до выполнения нормы.')
     await show_keyboard(photo)
-
-
 ###################################Food##############################################
 def get_food_info(product_name):
     """Запрашивает данные о продукте у OpenFoodFacts"""
@@ -379,12 +379,20 @@ def get_food_info(product_name):
 
 @router.message(Command('food'))
 async def calories(message: Message, state: FSMContext):
-    await message.answer(
-        '<b><u>Вы выбрали кнопку "Еда"</u></b>\n\n'
-        'Напишите название продукта, чтобы узнать его калорийность.',
-        parse_mode='HTML'
-    )
-    await state.set_state(Food.product)
+    data = await state.get_data()  # Получаем данные состояния
+    if not data.get('name'):
+        p = await message.answer('<b><u>Вы выбрали кнопку "Еда"</u></b>\n\n'
+                                 '<b>Ваш профиль пуст.</b> Сначала нужно создать профиль.',
+                                 parse_mode='HTML')
+        # Возврат в главное меню
+        await show_keyboard(p)
+    else:
+        await message.answer(
+            '<b><u>Вы выбрали кнопку "Еда"</u></b>\n\n'
+            'Напишите название продукта, чтобы узнать его калорийность.',
+            parse_mode='HTML'
+        )
+        await state.set_state(Food.product)
 
 @router.message(Food.product)
 async def process_product_input(message: Message, state: FSMContext):
@@ -392,7 +400,7 @@ async def process_product_input(message: Message, state: FSMContext):
     if not product:
         await message.answer("Название продукта не может быть пустым. Пожалуйста, введите название продукта еще раз.")
         return
-    elif not re.match('^[A-Za-zА-Яа-яЁёs ]+$', product):  # Добавил пробел для многословных названий
+    elif not re.match('^[A-Za-zА-Яа-яЁёs ]+$', product):
         await message.answer('Название продукта должно содержать только буквы. Пожалуйста, введите снова название продукта.')
         return
 
@@ -437,4 +445,87 @@ async def process_weight_input(message: Message, state: FSMContext):
         parse_mode='HTML'
     )
     await show_keyboard(a)
+
 ###################################Workout##############################################
+async def get_burned_calories(exercise_name):
+    url = "https://api.api-ninjas.com/v1/caloriesburned"
+    headers = {
+        "X-Api-Key": API_T
+    }
+    params = {
+        "activity": exercise_name
+    }
+    response = requests.get(url, headers=headers, params=params)
+    if response.status_code == 200:
+        data = response.json()  # Получаем ответ как список словарей
+        random_index = random.randint(0, len(data) - 1)
+        new_data = data[random_index]
+        if isinstance(new_data, dict) and len(new_data) > 0:
+            return new_data.get('calories_per_hour'), new_data.get('name')
+    return None
+
+@router.message(Command('training'))
+async def start_training(message: Message, state: FSMContext):
+    data = await state.get_data()  # Получаем данные состояния
+    if not data.get('name'):
+        p = await message.answer('<b><u>Вы выбрали кнопку "Тренировка"</u></b>\n\n'
+                                 '<b>Ваш профиль пуст.</b> Сначала нужно создать профиль.',
+                                 parse_mode='HTML')
+        # Возврат в главное меню
+        await show_keyboard(p)
+    else:
+        await message.answer(
+            '<b><u>Вы выбрали кнопку "Тренировка"</u></b>\n\n'
+            'Напишите, пожалуйста, название тренировки на английском языке.',
+            parse_mode='HTML'
+        )
+        await state.set_state(Workout.name_w)
+
+@router.message(Workout.name_w)
+async def training_name(message: Message, state: FSMContext):
+    name_w = message.text.strip()
+    if not name_w:
+        await message.answer("Название тренировки не может быть пустым. Пожалуйста, введите название еще раз.")
+        return
+    elif not re.match('^[A-Za-zs ]+$', name_w):
+        await message.answer('Название тренировки должно содержать только буквы на английском языке. Пожалуйста, введите название еще раз.')
+        return
+    await state.update_data(name_w=name_w)
+    await message.answer('Сколько минут длилась Ваша тренировка?')
+    await state.set_state(Workout.time)
+
+@router.message(Workout.time)
+async def training_time(message: Message, state: FSMContext):
+    time = message.text.strip()
+    if not time.isdigit() or not (0 <= int(time) <= 1440):
+        await message.answer('Пожалуйста, введите корректное время (число от 0 до 1440):')
+        return
+    await state.update_data(time=int(time))
+
+    data = await state.get_data()
+    exercise_name = data.get('name_w')
+    duration_minutes = data.get('time')
+
+    total_calories, exercise_n = await get_burned_calories(exercise_name)
+    burned_calories = data.get('burned_calories', 0)
+    if total_calories is not None:
+        total_calories_minute = (int(total_calories) // 60) * int(duration_minutes)
+        # Сохраняем общее количество калорий для пользователя
+        burned_calories += total_calories_minute
+        await state.update_data(burned_calories=burned_calories)
+
+        water_intake_w = data.get('water_intake_w', 0)
+        water_intake = (int(duration_minutes) // 30) * 200
+        water_intake_w += water_intake
+        await state.update_data(water_intake_w=water_intake_w)
+
+        a = await message.answer(
+            f'🏃‍♀️‍➡️ {exercise_n.capitalize()} {duration_minutes} минут - {total_calories_minute} ккал.\n'
+            f'Дополнительно нужно выпить {int(water_intake)} мл воды'
+        )
+    else:
+        a = await message.answer('Не удалось получить данные о сожженных калориях. Проверьте название тренировки и попробуйте снова.')
+    await show_keyboard(a)
+###################################Progress##############################################
+
+

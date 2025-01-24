@@ -10,8 +10,13 @@ class User(StatesGroup):
     calorie_goal = State()  # Состояние для цели калорий
     logged_water = State() # Состояние для выпитой воды
     logged_calories = State() # Состояние для полученных калорий
-    burned_calories = State() # Состояние для сожженых калорий
+    burned_calories = State() # Состояние для сожженных калорий
 
 class Food(StatesGroup):
     product = State() # Состояние для названия продукта
     gram = State() # Состояние для съеденных грамм продукта
+
+class Workout(StatesGroup):
+    name_w = State() # Состояние для названия тренировки
+    time = State() # Состояние для времени тренировки
+    water_intake_w = State() # Состояние для дополнительной воды
