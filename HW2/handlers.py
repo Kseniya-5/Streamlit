@@ -222,6 +222,7 @@ async def process_calorie_goal(message: Message, state: FSMContext):
         await state.update_data(custom_calorie_goal=float(custom_calorie_goal))
         await display_user_data(data, message.text, "задано вручную", message)
 
+
 ###################################Profile##############################################
 @router.message(Command('get_profile'))
 async def get_profile(message: Message, state: FSMContext):
@@ -573,7 +574,45 @@ async def training_time(message: Message, state: FSMContext):
         a = await message.answer(
             'Не удалось получить данные о сожженных калориях. Проверьте название тренировки и попробуйте снова.')
     await show_keyboard(a)
+
+
 ###################################Progress##############################################
+def plot_calorie(message, calorie_goal, logged_calories, burned_calories):
+    # Корректируем целевую калорийность с учетом уже заложенных калорий
+    adjusted_target = int(logged_calories) - int(burned_calories)
+
+    # Данные для графика
+    categories = ['Калории за день', 'Цель калорий']
+    values = [adjusted_target, calorie_goal]
+    colors = ['orange', 'green']
+
+    # Создаем график
+    fig, ax = plt.subplots()
+    bars = ax.bar(categories, values, color=colors)
+
+    # Подписи над столбиками
+    for bar in bars:
+        yval = bar.get_height()
+        ax.text(bar.get_x() + bar.get_width() / 2, yval, round(yval, 2), ha='center', va='bottom')
+
+    # Если есть сожженные калории, рисуем дополнительный красный столбик
+    if burned_calories > 0:
+        # Добавляем сожженные калории к основному столбику, изменяя его высоту
+        ax.bar('Калории за день', int(burned_calories), bottom=int(adjusted_target),
+               color='red', label='Сожженные калории')
+
+    # Заголовок и метки
+    ax.set_title('Калории за день')
+    ax.set_ylabel('Объем (ккал)')
+
+    # Добавляем легенду
+    ax.legend(loc='upper left')
+
+    # Сохраняем график во временный файл
+    plt.savefig('calorie_day.jpg')
+    plt.close()
+
+
 @router.message(Command('progress'))
 async def start_progress(message: Message, state: FSMContext):
     data = await state.get_data()  # Получаем данные состояния
@@ -586,6 +625,58 @@ async def start_progress(message: Message, state: FSMContext):
     else:
         await message.answer(
             '<b><u>Вы выбрали кнопку "Прогресс"</u></b>\n\n'
-            'Ваши результаты за этот день:',
+            '<b>Ваши результаты за этот день по воде:</b>',
             parse_mode='HTML'
         )
+        data = await state.get_data()
+        current_temp, total_water_goal, remaining_water = await calculate_water_goal(message, data)
+        water_intake_w = data.get('water_intake_w', 0)
+        logged_water = data.get('logged_water', 0)
+        plot_water_intake(message, logged_water, total_water_goal, water_intake_w)
+        if water_intake_w == 0:
+            if (int(total_water_goal) - int(logged_water)) == 0:
+                await message.answer_photo(photo=FSInputFile('water_intake.jpg', filename='График воды'),
+                                           caption=f'Вы выпили {logged_water} мл из необходимых {int(total_water_goal)} мл воды.\n'
+                                                   f'<b>Поздравляю!</b> Вы выпили свою дневную норму 💧',
+                                           parse_mode='HTML')
+            elif (int(total_water_goal) - int(logged_water)) < 0:
+                await message.answer_photo(photo=FSInputFile('water_intake.jpg', filename='График воды'),
+                                           caption=f'Вы выпили {logged_water} мл из необходимых {int(total_water_goal)} мл воды.\n'
+                                                   f'<b>Осторожно!</b> Вы выпили больше нормы 💧',
+                                           parse_mode='HTML')
+            else:
+                await message.answer_photo(photo=FSInputFile('water_intake.jpg', filename='График воды'),
+                                           caption=f'Вы выпили {logged_water} мл из необходимых {int(total_water_goal)} мл воды.\n'
+                                                   f'Осталось еще {int(remaining_water)} мл до выполнения нормы.')
+        else:
+            if (int(total_water_goal) + int(water_intake_w) - int(logged_water)) == 0:
+                await message.answer_photo(photo=FSInputFile('water_intake.jpg', filename='График воды'),
+                                           caption='<b>Хорошая тренировка!</b>\n'
+                                                   f'Вы выпили {logged_water} мл из необходимых {int(total_water_goal) + int(water_intake_w)} мл воды.\n'
+                                                   f'<b>Поздравляю!</b> Вы выпили свою дневную норму 💧',
+                                           parse_mode='HTML')
+            elif (int(total_water_goal) + int(water_intake_w) - int(logged_water)) < 0:
+                await message.answer_photo(photo=FSInputFile('water_intake.jpg', filename='График воды'),
+                                           caption='<b>Хорошая тренировка!</b>\n'
+                                                   f'Вы выпили {logged_water} мл из необходимых {int(total_water_goal) + int(water_intake_w)} мл воды.\n'
+                                                   f'<b>Осторожно!</b> Вы выпили больше нормы 💧',
+                                           parse_mode='HTML')
+            else:
+                await message.answer_photo(photo=FSInputFile('water_intake.jpg', filename='График воды'),
+                                           caption='<b>Хорошая тренировка!</b>\n'
+                                                   f'Вы выпили {logged_water} мл из необходимых {int(total_water_goal) + int(water_intake_w)} мл воды.\n'
+                                                   f'Осталось еще {int(total_water_goal) + int(water_intake_w) - int(logged_water)} мл до выполнения нормы.',
+                                           parse_mode='HTML')
+
+        await message.answer('<b>Ваши результаты за этот день по калориям:</b>',
+                             parse_mode='HTML')
+        calorie_goal = data.get('custom_calorie_goal', 0)
+        logged_calories = data.get('logged_calories', 0)
+        burned_calories = data.get('burned_calories', 0)
+        plot_calorie(message, calorie_goal, logged_calories, burned_calories)
+        a = await message.answer_photo(photo=FSInputFile('calorie_day.jpg', filename='График калорий'),
+                                       caption=f'Потреблено  {int(logged_calories)} калл из {float(calorie_goal)} калл.\n'
+                                               f'Сожжено {int(burned_calories)} калл.\n'
+                                               f'Баланс {int(logged_calories) - int(burned_calories)} калл.',
+                                       parse_mode='HTML')
+        await show_keyboard(a)
