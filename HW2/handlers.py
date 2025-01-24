@@ -11,8 +11,8 @@ import requests
 import re
 
 router = Router()
-API_KEY = API_W # API для погоды
-API_T = API     # API для тренировки
+API_KEY = API_W  # API для погоды
+API_T = API  # API для тренировки
 
 
 # Обработчик команды /start
@@ -84,14 +84,16 @@ async def handle_callback(callback_query: CallbackQuery, state: FSMContext):
     elif callback_query.data == 'training':
         await start_training(callback_query.message, state)
     elif callback_query.data == 'progress':
-        await callback_query.message.reply('Вы выбрали кнопку "Прогресс".')
+        await start_progress(callback_query.message, state)
     else:
         await callback_query.message.answer("Неизвестная опция.")
 
 
-###################################Profile##############################################
+###################################Create a profile##############################################
 @router.message(Command('profile'))
 async def start_profile(message: Message, state: FSMContext):
+    # Завершить текущее состояние, если оно есть
+    await state.clear()
     await message.answer('<b><u>Вы выбрали кнопку "Создать профиль"</u></b>\n\n'
                          'Как Вас зовут?',
                          parse_mode='HTML')
@@ -220,7 +222,7 @@ async def process_calorie_goal(message: Message, state: FSMContext):
         await state.update_data(custom_calorie_goal=float(custom_calorie_goal))
         await display_user_data(data, message.text, "задано вручную", message)
 
-
+###################################Profile##############################################
 @router.message(Command('get_profile'))
 async def get_profile(message: Message, state: FSMContext):
     data = await state.get_data()  # Получаем данные состояния
@@ -310,10 +312,11 @@ async def calculate_water_goal(message: Message, data):
     return current_temp, total_water_goal, remaining_water
 
 
-def plot_water_intake(message, logged_water, total_water_goal):
+def plot_water_intake(message, logged_water, total_water_goal, water_intake_w):
     # Данные для графика
+    adjusted_target = int(total_water_goal) + int(water_intake_w)
     categories = ['Выпитая вода', 'Необходимая норма']
-    values = [int(logged_water), int(total_water_goal)]
+    values = [int(logged_water), adjusted_target]
     colors = ['blue', 'orange']
 
     # Создаем график
@@ -325,9 +328,18 @@ def plot_water_intake(message, logged_water, total_water_goal):
         yval = bar.get_height()
         ax.text(bar.get_x() + bar.get_width() / 2, yval, round(yval, 2), ha='center', va='bottom')
 
+    if water_intake_w > 0:
+        additional_water_bar = ax.bar('Необходимая норма', int(water_intake_w), bottom=int(total_water_goal),
+                                      color='red',
+                                      label='Дополнительная вода')
+
     # Заголовок и метки
     ax.set_title('Потребление воды в день')
     ax.set_ylabel('Объем (мл)')
+
+    # Добавляем легенду только для дополнительной воды
+    if water_intake_w > 0:
+        ax.legend(loc='upper left')
 
     # Сохраняем график во временный файл
     plt.savefig('water_intake.jpg')
@@ -344,21 +356,43 @@ async def process_logged_water(message: Message, state: FSMContext):
     await state.update_data(logged_water=int(logged_water))
     data = await state.get_data()
     current_temp, total_water_goal, remaining_water = await calculate_water_goal(message, data)
-    plot_water_intake(message, logged_water, total_water_goal)
-    if (int(total_water_goal) - int(logged_water)) == 0:
-        photo = await message.answer_photo(photo=FSInputFile('water_intake.jpg', filename='График воды'),
-                                           caption=f'Вы выпили {logged_water} мл из необходимых {int(total_water_goal)} мл воды.\n'
-                                                   f'<b>Поздравляю!</b> Вы выпили свою дневную норму 💧',
-                                           parse_mode='HTML')
-    elif (int(total_water_goal) - int(logged_water)) < 0:
-        photo = await message.answer_photo(photo=FSInputFile('water_intake.jpg', filename='График воды'),
-                                           caption=f'Вы выпили {logged_water} мл из необходимых {int(total_water_goal)} мл воды.\n'
-                                                   f'<b>Осторожно!</b> Вы выпили больше нормы 💧', parse_mode='HTML')
+    water_intake_w = data.get('water_intake_w', 0)
+    plot_water_intake(message, logged_water, total_water_goal, water_intake_w)
+    if water_intake_w == 0:
+        if (int(total_water_goal) - int(logged_water)) == 0:
+            photo = await message.answer_photo(photo=FSInputFile('water_intake.jpg', filename='График воды'),
+                                               caption=f'Вы выпили {logged_water} мл из необходимых {int(total_water_goal)} мл воды.\n'
+                                                       f'<b>Поздравляю!</b> Вы выпили свою дневную норму 💧',
+                                               parse_mode='HTML')
+        elif (int(total_water_goal) - int(logged_water)) < 0:
+            photo = await message.answer_photo(photo=FSInputFile('water_intake.jpg', filename='График воды'),
+                                               caption=f'Вы выпили {logged_water} мл из необходимых {int(total_water_goal)} мл воды.\n'
+                                                       f'<b>Осторожно!</b> Вы выпили больше нормы 💧', parse_mode='HTML')
+        else:
+            photo = await message.answer_photo(photo=FSInputFile('water_intake.jpg', filename='График воды'),
+                                               caption=f'Вы выпили {logged_water} мл из необходимых {int(total_water_goal)} мл воды.\n'
+                                                       f'Осталось еще {int(remaining_water)} мл до выполнения нормы.')
     else:
-        photo = await message.answer_photo(photo=FSInputFile('water_intake.jpg', filename='График воды'),
-                                           caption=f'Вы выпили {logged_water} мл из необходимых {int(total_water_goal)} мл воды.\n'
-                                                   f'Осталось еще {int(remaining_water)} мл до выполнения нормы.')
+        if (int(total_water_goal) + int(water_intake_w) - int(logged_water)) == 0:
+            photo = await message.answer_photo(photo=FSInputFile('water_intake.jpg', filename='График воды'),
+                                               caption='<b>Хорошая тренировка!</b>\n'
+                                                       f'Вы выпили {logged_water} мл из необходимых {int(total_water_goal) + int(water_intake_w)} мл воды.\n'
+                                                       f'<b>Поздравляю!</b> Вы выпили свою дневную норму 💧',
+                                               parse_mode='HTML')
+        elif (int(total_water_goal) + int(water_intake_w) - int(logged_water)) < 0:
+            photo = await message.answer_photo(photo=FSInputFile('water_intake.jpg', filename='График воды'),
+                                               caption='<b>Хорошая тренировка!</b>\n'
+                                                       f'Вы выпили {logged_water} мл из необходимых {int(total_water_goal) + int(water_intake_w)} мл воды.\n'
+                                                       f'<b>Осторожно!</b> Вы выпили больше нормы 💧', parse_mode='HTML')
+        else:
+            photo = await message.answer_photo(photo=FSInputFile('water_intake.jpg', filename='График воды'),
+                                               caption='<b>Хорошая тренировка!</b>\n'
+                                                       f'Вы выпили {logged_water} мл из необходимых {int(total_water_goal) + int(water_intake_w)} мл воды.\n'
+                                                       f'Осталось еще {int(total_water_goal) + int(water_intake_w) - int(logged_water)} мл до выполнения нормы.',
+                                               parse_mode='HTML')
     await show_keyboard(photo)
+
+
 ###################################Food##############################################
 def get_food_info(product_name):
     """Запрашивает данные о продукте у OpenFoodFacts"""
@@ -377,6 +411,7 @@ def get_food_info(product_name):
     print(f"Ошибка: {response.status_code}")
     return None
 
+
 @router.message(Command('food'))
 async def calories(message: Message, state: FSMContext):
     data = await state.get_data()  # Получаем данные состояния
@@ -394,6 +429,7 @@ async def calories(message: Message, state: FSMContext):
         )
         await state.set_state(Food.product)
 
+
 @router.message(Food.product)
 async def process_product_input(message: Message, state: FSMContext):
     product = message.text.strip()
@@ -401,7 +437,8 @@ async def process_product_input(message: Message, state: FSMContext):
         await message.answer("Название продукта не может быть пустым. Пожалуйста, введите название продукта еще раз.")
         return
     elif not re.match('^[A-Za-zА-Яа-яЁёs ]+$', product):
-        await message.answer('Название продукта должно содержать только буквы. Пожалуйста, введите снова название продукта.')
+        await message.answer(
+            'Название продукта должно содержать только буквы. Пожалуйста, введите снова название продукта.')
         return
 
     await state.update_data(product=product)
@@ -420,6 +457,7 @@ async def process_product_input(message: Message, state: FSMContext):
     )
     await state.set_state(Food.gram)
     await state.update_data(calories_per_100g=calories_per_100g)
+
 
 @router.message(Food.gram)
 async def process_weight_input(message: Message, state: FSMContext):
@@ -446,6 +484,7 @@ async def process_weight_input(message: Message, state: FSMContext):
     )
     await show_keyboard(a)
 
+
 ###################################Workout##############################################
 async def get_burned_calories(exercise_name):
     url = "https://api.api-ninjas.com/v1/caloriesburned"
@@ -458,11 +497,15 @@ async def get_burned_calories(exercise_name):
     response = requests.get(url, headers=headers, params=params)
     if response.status_code == 200:
         data = response.json()  # Получаем ответ как список словарей
-        random_index = random.randint(0, len(data) - 1)
-        new_data = data[random_index]
-        if isinstance(new_data, dict) and len(new_data) > 0:
-            return new_data.get('calories_per_hour'), new_data.get('name')
-    return None
+        if len(data) == 0:
+            return None, None
+        else:
+            random_index = random.randint(0, len(data) - 1)
+            new_data = data[random_index]
+            if isinstance(new_data, dict) and len(new_data) > 0:
+                return new_data.get('calories_per_hour'), new_data.get('name')
+    return None, None
+
 
 @router.message(Command('training'))
 async def start_training(message: Message, state: FSMContext):
@@ -481,6 +524,7 @@ async def start_training(message: Message, state: FSMContext):
         )
         await state.set_state(Workout.name_w)
 
+
 @router.message(Workout.name_w)
 async def training_name(message: Message, state: FSMContext):
     name_w = message.text.strip()
@@ -488,11 +532,13 @@ async def training_name(message: Message, state: FSMContext):
         await message.answer("Название тренировки не может быть пустым. Пожалуйста, введите название еще раз.")
         return
     elif not re.match('^[A-Za-zs ]+$', name_w):
-        await message.answer('Название тренировки должно содержать только буквы на английском языке. Пожалуйста, введите название еще раз.')
+        await message.answer(
+            'Название тренировки должно содержать только буквы на английском языке. Пожалуйста, введите название еще раз.')
         return
     await state.update_data(name_w=name_w)
     await message.answer('Сколько минут длилась Ваша тренировка?')
     await state.set_state(Workout.time)
+
 
 @router.message(Workout.time)
 async def training_time(message: Message, state: FSMContext):
@@ -524,8 +570,22 @@ async def training_time(message: Message, state: FSMContext):
             f'Дополнительно нужно выпить {int(water_intake)} мл воды'
         )
     else:
-        a = await message.answer('Не удалось получить данные о сожженных калориях. Проверьте название тренировки и попробуйте снова.')
+        a = await message.answer(
+            'Не удалось получить данные о сожженных калориях. Проверьте название тренировки и попробуйте снова.')
     await show_keyboard(a)
 ###################################Progress##############################################
-
-
+@router.message(Command('progress'))
+async def start_progress(message: Message, state: FSMContext):
+    data = await state.get_data()  # Получаем данные состояния
+    if not data.get('name'):
+        p = await message.answer('<b><u>Вы выбрали кнопку "Прогресс"</u></b>\n\n'
+                                 '<b>Ваш профиль пуст.</b> Сначала нужно создать профиль.',
+                                 parse_mode='HTML')
+        # Возврат в главное меню
+        await show_keyboard(p)
+    else:
+        await message.answer(
+            '<b><u>Вы выбрали кнопку "Прогресс"</u></b>\n\n'
+            'Ваши результаты за этот день:',
+            parse_mode='HTML'
+        )
